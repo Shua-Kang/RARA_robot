@@ -2,11 +2,13 @@
 
 Real robot: the 1280x720 global view is cropped to a 720x720 square (left cables and right empty table
 removed), the 640x480 gripper view to a 480x480 square, and the gripper view is inset at the bottom right.
+More real-robot rollouts: the 640x480 front view is kept whole, with the wrist view inset at the top right.
 RoboTwin: the 23-px burned-in label bar at the top is cropped; labels are shown on the page instead.
 
-Run from the repository root:  python tools/process_videos.py
+Run from the repository root:  python tools/process_videos.py [real] [real_more] [robotwin] [robocasa]
 """
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -24,6 +26,24 @@ REAL = [
     ('RARA/pick_3_toys_25_success', 'toys_rara_3'),
     ('BlindVLA/toaster_04', 'toaster_blindvla_1'),
     ('RARA/toaster_05', 'toaster_rara_1'),
+]
+
+# More RARA rollouts on the real robot (640x480 front and wrist cameras, recorded 2026-11-20):
+# (raw folder under videos/real/rollouts_2026_11_20, output name, start s, end s or None).
+REAL_MORE_RAW = 'rollouts_2026_11_20'
+REAL_MORE = [
+    ('toy_01', 'toys_1', 0, None),
+    ('toy_02', 'toys_2', 0, None),
+    ('toy_03', 'toys_3', 0, None),
+    ('toaster_01', 'toaster_1', 0, None),
+    ('toaster_02', 'toaster_2', 0, 12.0),     # the gripper closes again on nothing after 12 s
+    ('toaster_03', 'toaster_3', 1.7, None),   # a hand adjusts the toaster in the first 1.5 s
+    ('toaster_04', 'toaster_4', 0, None),
+    ('lid_01_black', 'lid_1', 0, None),
+    ('lid_02_gray', 'lid_2', 0, None),
+    ('lid_03_green', 'lid_3', 0, None),
+    ('lid_04_red', 'lid_4', 0, None),
+    ('lid_05_white', 'lid_5', 0, None),
 ]
 
 ROBOTWIN_TASKS = {'env200005_e300': 'click_alarm_clock', 'env300008_e300': 'move_pill_bottle'}
@@ -57,6 +77,21 @@ def real():
         print(dst.relative_to(ROOT), dst.stat().st_size // 1024, 'KB')
 
 
+def real_more():
+    """Front view at full 640x480, with the wrist view (center 480x480 square) inset at the top right,
+    where the front view only shows the background."""
+    (OUT / 'real_more').mkdir(parents=True, exist_ok=True)
+    graph = ('[1:v]crop=480:480:80:0,scale=150:150,pad=156:156:3:3:white[r];'
+             '[0:v][r]overlay=W-w-10:10:shortest=1')
+    for folder, name, start, end in REAL_MORE:
+        src = RAW / 'real' / REAL_MORE_RAW / folder
+        dst = OUT / 'real_more' / f'{name}.mp4'
+        trim = ['-ss', str(start)] + (['-to', str(end)] if end is not None else [])
+        run(trim + ['-i', str(src / 'front.mp4')] + trim + ['-i', str(src / 'wrist.mp4'),
+            '-filter_complex', graph, '-r', '30', '-crf', '26'] + ENC + [str(dst)])
+        print(dst.relative_to(ROOT), dst.stat().st_size // 1024, 'KB')
+
+
 def robotwin():
     (OUT / 'robotwin').mkdir(parents=True, exist_ok=True)
     for env, task in ROBOTWIN_TASKS.items():
@@ -81,6 +116,7 @@ def robocasa():
 
 
 if __name__ == '__main__':
-    real()
-    robotwin()
-    robocasa()
+    # Optional arguments pick the groups to process, e.g. "python tools/process_videos.py real_more".
+    groups = {'real': real, 'real_more': real_more, 'robotwin': robotwin, 'robocasa': robocasa}
+    for group in sys.argv[1:] or groups:
+        groups[group]()
